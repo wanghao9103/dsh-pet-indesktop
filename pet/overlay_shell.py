@@ -116,7 +116,7 @@ from .config import (
 from .fun_image_popup import oijingjing_image_path, resolve_fun_asset
 from .overlay_peripherals import FullscreenCursorWatcher
 from .overlay_window import OverlayWindow
-from .pet_sprite import INTERACTION_DRAG, INTERACTION_THROWN, PetSprite
+from .pet_sprite import INTERACTION_DRAG, INTERACTION_NORMAL, INTERACTION_THROWN, PetSprite
 from .screen_host import ScreenHost
 from .session_watcher import install_session_watcher
 from .speech_bubble import (
@@ -244,6 +244,34 @@ class _SpriteChatAnchor:
     def on_open_chat(self) -> None:
         """气泡内「完整聊天窗」入口（QuickChatBubble._open_full_chat 调用面）。"""
         self._shell.open_full_chat()
+
+    def perform_chat_action(self, action) -> str:
+        """User animation commands stay bound to this sprite, including child pets."""
+        from .chat.pet_actions import execute_pet_action
+
+        shell, sprite = self._shell, self._sprite
+        if not self.presentation_valid() or not shell._sprite_speech_visible(sprite):
+            return "这只宠物当前不可用，请重新打开它的快速对话。"
+        if sprite.interaction_state != INTERACTION_NORMAL:
+            return "暂时做不了这个动作：正在拖拽或飞行，请稍后再试。"
+        if action.kind == "move" and shell._sprite_config(sprite).get("no_move", False):
+            return "已开启“不移动”，请先关闭这个选项再让我走动。"
+        host = shell.host_for_sprite(sprite)
+        behavior = host.behavior
+        shell.mark_activity()
+
+        def spin():
+            if getattr(host.probe, "active", False) or host.throw_egg.active:
+                return False
+            shell.trigger_golden_spin(sprite)
+            return bool(shell._golden_spin_target is sprite
+                        and shell._golden_spin is not None and shell._golden_spin.active)
+
+        return execute_pet_action(
+            action, sprite.library.names(),
+            lambda name: behavior.play_once(sprite, name),
+            lambda name, direction: behavior.play_move_once(
+                sprite, name, direction=direction, fallback_to_acts=False), spin)
 
 
 class _GoldenSpinSpriteHost:

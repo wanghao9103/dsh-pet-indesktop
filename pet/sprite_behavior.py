@@ -484,10 +484,10 @@ class BehaviorController:
         st.elapsed = 0.0
         st.anim = name
         st.duration = self._plan_duration(sprite, name)
-        sprite.bind_clip(name)
-        return True
+        return sprite.bind_clip(name) is not False
 
-    def play_move_once(self, sprite, name: str) -> bool:
+    def play_move_once(self, sprite, name: str, *, direction: int | None = None,
+                       fallback_to_acts: bool = True) -> bool:
         """以指定移动素材触发一次移动（菜单「移动」类入口；无可达空间
         回退动作池，window.py trigger_move 语义）。"""
         if getattr(sprite, "interaction_state", INTERACTION_NORMAL) != INTERACTION_NORMAL:
@@ -496,8 +496,9 @@ class BehaviorController:
         if name not in cats["moves"]:
             return False
         st = self._states.setdefault(sprite, _SpriteState())
-        if not self._plan_move(sprite, st, cats, anim_override=name):
-            self._enter_acts(sprite, st, cats)
+        if not self._plan_move(sprite, st, cats, anim_override=name, direction=direction):
+            if fallback_to_acts:
+                self._enter_acts(sprite, st, cats)
             return False
         return True
 
@@ -1542,7 +1543,7 @@ class BehaviorController:
         self._bind_with_gen(sprite, st, name)
 
     def _plan_move(self, sprite, st: _SpriteState, cats: dict,
-                   anim_override: str | None = None) -> bool:
+                   anim_override: str | None = None, direction: int | None = None) -> bool:
         """排定一次移动（window.py _try_move 语义）；返回 False = 未建立计划。
         anim_override：菜单「移动」类指定素材（trigger_move），None = 掷骰随机。
 
@@ -1563,7 +1564,11 @@ class BehaviorController:
         off_x, off_y, bw, bh = self._body_geometry(sprite)
         cx, left, right = movement.body_reach(
             self.bounds.left(), self.bounds.right(), sprite.pos.x() + off_x, bw, self.margin)
-        dir_sign = movement.choose_move_direction(cx, left, right, self.min_distance, self.rng)
+        if direction is None:
+            dir_sign = movement.choose_move_direction(cx, left, right, self.min_distance, self.rng)
+        else:
+            dir_sign = movement.choose_move_direction(
+                cx, left, right, self.min_distance, self.rng, direction=direction)
         if dir_sign is None:
             return False  # 两侧空间都不足：不建立计划
         room = (cx - left) if dir_sign < 0 else (right - cx)

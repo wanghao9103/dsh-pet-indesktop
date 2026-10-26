@@ -1628,6 +1628,29 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         """公开转发：切换到指定动画（等价 _switch）。"""
         return self._switch(name, _link_request=link_request)
 
+    def perform_chat_action(self, action) -> str:
+        """Legacy/capture topology equivalent of the sprite chat action host."""
+        from .chat.pet_actions import execute_pet_action
+
+        if not self.isVisible():
+            return "这只宠物当前不可用，请重新打开它的快速对话。"
+        if self._physics_mode is not None or self._interaction_state in (THROWN, DRAGGING):
+            return "暂时做不了这个动作：正在拖拽或飞行，请稍后再试。"
+        if action.kind == "move" and self.no_move:
+            return "已开启“不移动”，请先关闭这个选项再让我走动。"
+        self.mark_activity()
+
+        def move(name, direction):
+            self._cancel_move()
+            self._cancel_animation_gap()
+            return self._try_move(name, direction=direction)
+
+        def spin():
+            self.trigger_golden_spin()
+            return bool(self._golden_spin is not None and self._golden_spin.active)
+
+        return execute_pet_action(action, self.lib.names(), self.switch_clip, move, spin)
+
     def _switch_fallback(self, prev_anim: str, prev_movie, prev_click_hold: bool,
                          prev_bounds, requested: str, is_link: bool = False) -> None:
         """动画启动被拒绝时的明确降级：恢复可播放状态 + 安排稍后重试。
@@ -2728,7 +2751,7 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         return SimpleNamespace(avail=avail, sbr=sbr, vp=vp,
                                cx=cx, left=left, right=right)
 
-    def _try_move(self, name: str | None = None) -> bool:
+    def _try_move(self, name: str | None = None, *, direction: int | None = None) -> bool:
         """计划一次移动；返回 False 表示未建立移动计划。
 
         目标先于朝向：方向由 choose_move_direction 按边缘可达性挑（两侧都够得着
@@ -2753,7 +2776,11 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         sp = self._move_space()
         if sp is None or not self.moves:
             return False
-        dir_sign = choose_move_direction(sp.cx, sp.left, sp.right, catalog.MOVE_MIN_PX)
+        if direction is None:
+            dir_sign = choose_move_direction(sp.cx, sp.left, sp.right, catalog.MOVE_MIN_PX)
+        else:
+            dir_sign = choose_move_direction(
+                sp.cx, sp.left, sp.right, catalog.MOVE_MIN_PX, direction=direction)
         if dir_sign is None:
             return False
         room = (sp.cx - sp.left) if dir_sign < 0 else (sp.right - sp.cx)

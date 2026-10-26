@@ -63,13 +63,21 @@ def choose_move_direction(
     right_bound: float,
     min_distance: float,
     rnd=random,
+    *,
+    direction: int | None = None,
 ) -> int | None:
     """按边缘可达性挑移动方向：-1 左 / +1 右 / None 两侧都走不了。
 
     先算两侧剩余空间，够 min_distance 才算「可达」（含等号）。单侧可达 →
     该侧（不掷骰）；两侧可达 → rnd.choice 二选一；都不可达 → None，调用方
     据此拒绝建立移动计划（边缘可达性闸门，替代此前的「先取朝向再算出界」）。
+    direction 给定时只尝试用户指定的一侧；不可达返回 None，绝不反向代走。
     """
+    if direction is not None:
+        if direction not in (-1, 1):
+            return None
+        room = cx - left_bound if direction < 0 else right_bound - cx
+        return direction if room >= min_distance else None
     if cx - left_bound >= min_distance and right_bound - cx >= min_distance:
         return rnd.choice([-1, 1])
     if cx - left_bound >= min_distance:
