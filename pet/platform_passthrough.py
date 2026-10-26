@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """非 Windows 逐像素输入穿透 —— Qt 属性 + 原生输入穿透标志的轮询实现。
 
+2026-10-26：Linux xcb 改用 XFixes ShapeInput 发布角色轮廓，见
+``x11_input_shape``。该分支不查询 QCursor，避免 XWayland 在原生 Wayland
+桌面背景上位置查询滞留后整窗永久穿透。下文的轮询切换作为其他后端/缺少
+XFixes 时的既有回退保留。
+
 背景（发布阻断级）：新架构默认拓扑是全屏 overlay（``pet/overlay_window.py``：
 一个全屏透明窗承载全部 sprite）。逐像素穿透此前只有 Windows 实现
 （``pet/platform_win.py`` 的 ``WindowsPerPixelInputController``：WS_EX_TRANSPARENT
@@ -59,6 +64,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, QTimer, Qt
 from PySide6.QtGui import QCursor
+
+from .x11_input_shape import create_x11_input_shape
 
 if TYPE_CHECKING:
     from .overlay_window import OverlayWindow
@@ -119,9 +126,15 @@ class QtPerPixelInputController:
     _applied_win_id: int | None = None
     #: 上一次真写的**目标态**（macOS 专用短路，见 ``_apply_through``）。
     _applied_state: bool | None = None
+    _x11_shape = None
 
     def __init__(self, window: "OverlayWindow") -> None:
         self._window = window
+        try:
+            self._x11_shape = create_x11_input_shape(window)
+        except (OSError, AttributeError):
+            logging.warning("X11 input shape unavailable; using pointer-based fallback")
+            self._x11_shape = None
         self._timer = QTimer(window)
         self._timer.setInterval(self.NORMAL_POLL_INTERVAL_MS)
         self._timer.timeout.connect(self.refresh)
@@ -168,11 +181,24 @@ class QtPerPixelInputController:
 
     def refresh(self) -> None:
         try:
+            if self._x11_shape is not None:
+                self._refresh_x11_shape()
+                return
             pos = QCursor.pos()
             self._sync_poll_interval(self._cursor_inside_window(pos))
             self._apply_through(self.should_click_through(pos))
         except (AttributeError, OSError, RuntimeError):
             logging.debug("更新 Qt 逐像素鼠标穿透失败", exc_info=True)
+
+    def _refresh_x11_shape(self, *, force=False):
+        # No QCursor call here: XWayland cannot reliably query the pointer while
+        # it is over a native Wayland desktop/window. Keep Qt receptive and let
+        # the native silhouette, including manual empty-shape mode, route input.
+        check = getattr(self._window, "_check_stale_press", None)
+        if callable(check):
+            check()
+        self._apply_through(False)
+        self._x11_shape.refresh(self._window, force=force)
 
     # ---------------------------------------------------------------- 落点（薄 Qt 层）
     @staticmethod
@@ -273,6 +299,9 @@ class QtPerPixelInputController:
         try:
             if not self._timer.isActive():
                 return
+            if self._x11_shape is not None:
+                self._refresh_x11_shape(force=True)
+                return
             pos = QCursor.pos()
             self._apply_through(self.should_click_through(pos), force=True)
         except (AttributeError, OSError, RuntimeError):
@@ -285,6 +314,8 @@ class QtPerPixelInputController:
         降频到 100ms。松手后立即按光标位置重新定档（盒内 10ms / 盒外 50ms）并
         强制刷新一次穿透态；非拖拽状态重复调用是 no-op。
         """
+        if self._x11_shape is not None:
+            self.refresh()
         if active:
             if self._timer.interval() != self.DRAG_POLL_INTERVAL_MS:
                 self._timer.setInterval(self.DRAG_POLL_INTERVAL_MS)
