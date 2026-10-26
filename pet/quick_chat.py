@@ -31,7 +31,7 @@ from .chat.memory_extract import schedule_extraction
 from .chat.prompt import PromptBuilder
 from .chat.service import ChatService
 from .chat.session_store import SessionStore
-from .chat.pet_actions import parse_pet_action
+from .chat.pet_actions import dispatch_pet_action
 
 _PAGE_SIZE = 500
 
@@ -151,7 +151,7 @@ class QuickChatBubble(QFrame):
         input_row = QHBoxLayout()
         self.input = QLineEdit()
         self.input.setPlaceholderText("输入消息，回车发送…")
-        self.input.setToolTip("试试：跳一下、转个圈、往左走几步、跳个舞、伸个懒腰。")
+        self.input.setToolTip("试试：跳一下、转个圈、挥挥手、笑一笑。发送“动作列表”查看全部可用动作。")
         self.send_btn = QPushButton("发送")
         self.send_btn.setObjectName("quick-chat-send")
         input_row.addWidget(self.input, 1)
@@ -400,12 +400,9 @@ class QuickChatBubble(QFrame):
         self._page = 0
         self._pages = []
         self.page_widget.setVisible(False)
-        action = parse_pet_action(text)
-        if action is not None:
+        reply = dispatch_pet_action(text, self.pet_window)
+        if reply is not None:
             self._active_request_id = None
-            perform = getattr(self.pet_window, "perform_chat_action", None)
-            reply = (perform(action) if callable(perform)
-                     else "当前聊天没有连接可控制的宠物，请从宠物身上打开快速对话。")
             synced, _absorbed = self.store.append_message(self.session, ChatMessage("assistant", reply))
             if synced is None:
                 self.session.messages.append(ChatMessage("assistant", reply))

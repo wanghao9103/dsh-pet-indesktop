@@ -247,17 +247,18 @@ class _SpriteChatAnchor:
 
     def perform_chat_action(self, action) -> str:
         """User animation commands stay bound to this sprite, including child pets."""
-        from .chat.pet_actions import execute_pet_action
+        from .chat.pet_actions import execute_pet_action, is_move_action
 
         shell, sprite = self._shell, self._sprite
         if not self.presentation_valid() or not shell._sprite_speech_visible(sprite):
             return "这只宠物当前不可用，请重新打开它的快速对话。"
-        if sprite.interaction_state != INTERACTION_NORMAL:
+        if action.kind != "list" and sprite.interaction_state != INTERACTION_NORMAL:
             return "暂时做不了这个动作：正在拖拽或飞行，请稍后再试。"
-        if action.kind == "move" and shell._sprite_config(sprite).get("no_move", False):
-            return "已开启“不移动”，请先关闭这个选项再让我走动。"
         host = shell.host_for_sprite(sprite)
         behavior = host.behavior
+        moves = behavior._categories(sprite.library)["moves"]
+        if is_move_action(action, moves) and shell._sprite_config(sprite).get("no_move", False):
+            return "已开启“不移动”，请先关闭这个选项再让我走动。"
         shell.mark_activity()
 
         def spin():
@@ -271,7 +272,7 @@ class _SpriteChatAnchor:
             action, sprite.library.names(),
             lambda name: behavior.play_once(sprite, name),
             lambda name, direction: behavior.play_move_once(
-                sprite, name, direction=direction, fallback_to_acts=False), spin)
+                sprite, name, direction=direction, fallback_to_acts=False), spin, moves)
 
 
 class _GoldenSpinSpriteHost:

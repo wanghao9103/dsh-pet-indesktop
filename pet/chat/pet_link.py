@@ -8,6 +8,11 @@ class PetChatLink:
     def set_window(self, w):
         self.pet_window = w
 
+    def try_action(self, text):
+        from .pet_actions import dispatch_pet_action
+
+        return dispatch_pet_action(text, self.pet_window)
+
     def _notify(self, state, text=''):
         if self.pet_window and hasattr(self.pet_window, 'set_chat_status'):
             self.pet_window.set_chat_status(state, text)

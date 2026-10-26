@@ -61,7 +61,8 @@ class ActionLibrary(RichLibrary):
             self._clips[name] = FakeClip(name)
 
     def names(self):
-        return self.idles + self.turns + self.moves + self.clicks + self.acts
+        return self.idles + self.turns + self.moves + self.clicks + self.acts + (
+            [self.drag] if getattr(self, "drag", None) else [])
 
 
 class RejectNetwork:

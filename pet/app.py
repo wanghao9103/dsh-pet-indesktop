@@ -250,10 +250,16 @@ class _OverlayChatHost:
       转发到合成窗的 sprite 位置监听）。
     """
 
-    __slots__ = ("_shell",)
+    __slots__ = ("_shell", "_sprite")
 
     def __init__(self, shell) -> None:
         self._shell = shell
+        self._sprite = getattr(shell, "sprite", None)
+
+    def perform_chat_action(self, action) -> str:
+        from .overlay_shell import _SpriteChatAnchor
+
+        return _SpriteChatAnchor(self._shell, self._sprite).perform_chat_action(action)
 
     def visible_content_rect(self) -> QRect:
         fn = getattr(self._shell, "visible_content_rect", None)

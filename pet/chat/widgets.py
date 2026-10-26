@@ -2228,6 +2228,15 @@ class ChatWindow(QDialog):
             self.composer.clear_attachments()
             self._handle_remember_command(text, remember)
             return
+        if not self.composer.attachment_paths:
+            reply = self.pet_link.try_action(text)
+            if reply is not None:
+                if self._pending_finish_text is not None:
+                    self._complete_finished(self._pending_finish_text)
+                self._reset()
+                self.input.clear()
+                self._append_action_reply(text, reply)
+                return
         attachment_names = [path.name for path in self.composer.attachment_paths]
         attachment_context = self.composer.attachment_prompt()
         image_payloads = self.composer.image_payloads()
@@ -2255,6 +2264,22 @@ class ChatWindow(QDialog):
         self._add("user", display_text)
         self._last_user_text = request_text
         self._begin_generation(request_text, image_payloads=image_payloads)
+
+    def _append_action_reply(self, text: str, reply: str) -> None:
+        synced, absorbed = self.store.append_messages(
+            self.session, [ChatMessage("user", text), ChatMessage("assistant", reply)])
+        if synced is None:
+            self.session.messages.extend([ChatMessage("user", text), ChatMessage("assistant", reply)])
+            self.store.save(self.session)
+        else:
+            self.session = synced
+        if absorbed:
+            self._load()
+        else:
+            self._add("user", text)
+            self._add("assistant", reply)
+        self._refresh_sessions()
+        self._bottom()
 
     def _chat_memory(self) -> ChatMemory:
         """当前角色的对话全局记忆（与会话文件同目录；按需构造——实例很轻，锁按路径共享）。"""

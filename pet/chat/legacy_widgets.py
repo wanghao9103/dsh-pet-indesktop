@@ -1048,6 +1048,12 @@ class ChatWindow(QDialog):
             self.input.clear()
             self._handle_remember_command(text, remember)
             return
+        reply = self.pet_link.try_action(text)
+        if reply is not None:
+            self._reset()
+            self.input.clear()
+            self._append_action_reply(text, reply)
+            return
         self.input.clear()
         # 陈旧快照防护（DS-M7 → R3 P1 硬修）：原子「读-追加-提交」
         synced, absorbed = self.store.append_message(
@@ -1063,6 +1069,22 @@ class ChatWindow(QDialog):
         self._add("user", text)
         self._last_user_text = text
         self._begin_generation(text)
+
+    def _append_action_reply(self, text: str, reply: str) -> None:
+        synced, absorbed = self.store.append_messages(
+            self.session, [ChatMessage("user", text), ChatMessage("assistant", reply)])
+        if synced is None:
+            self.session.messages.extend([ChatMessage("user", text), ChatMessage("assistant", reply)])
+            self.store.save(self.session)
+        else:
+            self.session = synced
+        if absorbed:
+            self._load()
+        else:
+            self._add("user", text)
+            self._add("assistant", reply)
+        self._refresh_sessions()
+        self._bottom()
 
     def _chat_memory(self) -> ChatMemory:
         """当前角色的对话全局记忆（与会话文件同目录；按需构造——实例很轻，锁按路径共享）。"""
