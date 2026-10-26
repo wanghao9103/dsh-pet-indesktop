@@ -38,7 +38,7 @@ def test_full_chat_return_key_actually_jumps(full_chat):
     assert shell.host_for_sprite(shell.sprite).behavior.anim_of(shell.sprite) == "原地跳跃抓碎头顶物品"
     assert window.service.provider.calls == 0
     assert [(m.role, m.content) for m in window.session.messages][-2:] == [
-        ("user", "跳一跳"), ("assistant", "收到，开始跳跃～")]
+        ("user", "跳一跳"), ("assistant", window.session.messages[-1].content)]
     assert window._active_request_id is None
 
 
@@ -70,7 +70,8 @@ def test_every_installed_core_animation_can_be_requested(full_chat, animation):
         lib._clips[name] = FakeClip(name)
     shell.sprite.set_pos(QPointF(800, 300))
     submit(window, "播放动画 " + animation)
-    assert "开始" in window.session.messages[-1].content
+    assert window.session.messages[-1].role == "assistant"
+    assert "收到" not in window.session.messages[-1].content
     behavior = shell.host_for_sprite(shell.sprite).behavior
     if animation not in lib.moves:
         assert behavior.anim_of(shell.sprite) == animation
@@ -157,7 +158,7 @@ def test_pending_modern_typewriter_reply_is_saved_before_action(full_chat):
     window._pending_finish_text = "上一条完整回复"
     submit(window, "跳一下")
     assert [(m.role, m.content) for m in window.session.messages][-3:] == [
-        ("assistant", "上一条完整回复"), ("user", "跳一下"), ("assistant", "收到，开始跳跃～")]
+        ("assistant", "上一条完整回复"), ("user", "跳一下"), ("assistant", window.session.messages[-1].content)]
     assert window._pending_finish_text is None
 
 

@@ -1630,7 +1630,7 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
 
     def perform_chat_action(self, action) -> str:
         """Legacy/capture topology equivalent of the sprite chat action host."""
-        from .chat.pet_actions import execute_pet_action, is_move_action
+        from .chat.pet_actions import execute_pet_action, is_move_action, chat_action_mood
 
         if not self.isVisible():
             return "这只宠物当前不可用，请重新打开它的快速对话。"
@@ -1649,7 +1649,7 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
             self.trigger_golden_spin()
             return bool(self._golden_spin is not None and self._golden_spin.active)
 
-        return execute_pet_action(action, self.lib.names(), self.switch_clip, move, spin, self.moves)
+        return execute_pet_action(action, self.lib.names(), self.switch_clip, move, spin, self.moves, mood=chat_action_mood(self))
 
     def _switch_fallback(self, prev_anim: str, prev_movie, prev_click_hold: bool,
                          prev_bounds, requested: str, is_link: bool = False) -> None:

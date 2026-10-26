@@ -75,7 +75,12 @@ class RejectNetwork:
 
 
 @pytest.fixture
-def scene(tmp_path):
+def scene(tmp_path, monkeypatch):
+    # The system keyring is outside this test profile. Never let a developer's
+    # saved API key turn an offline-controls test into a configured-model test.
+    from pet.chat.models import SecretStore
+
+    monkeypatch.setattr(SecretStore, "get", lambda self, ref: None)
     shell, cfg = _make_slot_shell(tmp_path)
     shell.overlay.show()
     lib = ActionLibrary()
@@ -221,7 +226,7 @@ def test_compact_pack_animation_names_are_resolved(scene):
     lib._clips[lib.clicks[0]] = FakeClip(lib.clicks[0])
     send(bubble, "跳一下")
     assert shell.host_for_sprite(shell.sprite).behavior.anim_of(shell.sprite) == lib.clicks[0]
-    assert "开始跳跃" in bubble._reply_full
+    assert "跳" in bubble._reply_full and "收到" not in bubble._reply_full
 
 
 def test_spin_without_optional_video_uses_existing_rotation_on_addressed_child(scene):
@@ -235,7 +240,7 @@ def test_spin_without_optional_video_uses_existing_rotation_on_addressed_child(s
     child.library = lib
     bubble.pet_window = _SpriteChatAnchor(shell, child)
     send(bubble, "转个圈")
-    assert "开始转圈" in bubble._reply_full
+    assert "转" in bubble._reply_full and "收到" not in bubble._reply_full
     assert _pump_until(lambda: abs(child.throw_rotation) > 1)
     assert shell.sprite.throw_rotation == 0
     assert _pump_until(lambda: not shell._golden_spin.active)

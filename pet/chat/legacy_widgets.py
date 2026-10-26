@@ -1048,8 +1048,12 @@ class ChatWindow(QDialog):
             self.input.clear()
             self._handle_remember_command(text, remember)
             return
+        from .pet_actions import conversational_action_feedback
+
+        action_feedback = None
         reply = self.pet_link.try_action(text)
-        if reply is not None:
+        action_feedback = conversational_action_feedback(reply, self.settings, self.config)
+        if reply is not None and action_feedback is None:
             self._reset()
             self.input.clear()
             self._append_action_reply(text, reply)
@@ -1068,7 +1072,7 @@ class ChatWindow(QDialog):
                 self._refresh_sessions()
         self._add("user", text)
         self._last_user_text = text
-        self._begin_generation(text)
+        self._begin_generation(text, action_feedback=action_feedback)
 
     def _append_action_reply(self, text: str, reply: str) -> None:
         synced, absorbed = self.store.append_messages(
@@ -1157,7 +1161,8 @@ class ChatWindow(QDialog):
         self._remove_bubble(self._bubble)
         self._begin_generation(text)
 
-    def _begin_generation(self, text: str) -> None:
+    def _begin_generation(self, text: str, *, action_feedback=None) -> None:
+        self._action_feedback = action_feedback
         self._bubble = self._add("assistant", "")
         self._bubble.set_state("streaming")
         self._bubble.retry_requested.connect(self.retry_last)
@@ -1172,10 +1177,13 @@ class ChatWindow(QDialog):
             memory_payload=self._memory_injection(),
             # 每宠键：config 可能是 slot 路由视图，必须从 get 逐键读（chat_settings()
             # 转发主配置，读不到这只宠的场景卡）。与 widgets.py / quick_chat.py 同口径。
-            roleplay_enabled=bool(self.config.get("roleplay_enabled", False)),
+            roleplay_enabled=bool(self.config.get("roleplay_enabled", False)) and action_feedback is None,
             roleplay_scene=str(self.config.get("roleplay_scene", "") or ""),
             roleplay_cast=str(self.config.get("roleplay_cast", "") or ""),
         )
+        if action_feedback is not None:
+            action_feedback.add_context(messages)
+            config = action_feedback.reply_config(config)
         # 与 widgets.py 同款：id 必须先落本窗在途状态再 send（`started` 在
         # send() 内同步发出，晚赋值会让 `_started` 的 id 过滤恒命中）。
         request_id = uuid.uuid4().hex
@@ -1235,10 +1243,14 @@ class ChatWindow(QDialog):
         # 经典窗口只在状态栏提示思考/联网进度，思维链不进正文
         if request_id != self._active_request_id or self._text:
             return
+        if getattr(self, "_action_feedback", None) is not None:
+            return
         self.status.setText("深度思考中…" if kind == "reasoning" else str(text).strip()[:30])
 
     def _delta(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
+            return
+        if getattr(self, "_action_feedback", None) is not None:
             return
         # 每次 delta 只更新文本；若用户停留在底部则跟随滚动
         follow_output = self._is_near_bottom()
@@ -1254,6 +1266,9 @@ class ChatWindow(QDialog):
     def _finished(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            text = feedback.compact_reply(text)
         follow_output = self._is_near_bottom()
         if self._bubble:
             self._bubble.set_content(text)
@@ -1274,6 +1289,11 @@ class ChatWindow(QDialog):
     def _error(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            self._finished(request_id, str(feedback))
+            self.status.setText("回复生成失败；已保留动作结果")
+            return
         if self._bubble:
             self._bubble.set_content("请求失败：" + str(text))
             self._bubble.set_state("error")
@@ -1292,6 +1312,11 @@ class ChatWindow(QDialog):
     def _stopped(self, request_id: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            self._finished(request_id, str(feedback))
+            self.status.setText("已停止生成；已保留动作结果")
+            return
         if self._bubble:
             if self._text:
                 self._bubble.set_content(self._text)
@@ -1301,6 +1326,7 @@ class ChatWindow(QDialog):
         self._reset()
 
     def _reset(self) -> None:
+        self._action_feedback = None
         self._active_request_id = None
         self.status.setText("就绪")
         self.status_dot.setProperty("state", "ready")

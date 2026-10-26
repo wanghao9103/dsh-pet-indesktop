@@ -2228,15 +2228,21 @@ class ChatWindow(QDialog):
             self.composer.clear_attachments()
             self._handle_remember_command(text, remember)
             return
+        from .pet_actions import conversational_action_feedback
+
+        action_feedback = None
         if not self.composer.attachment_paths:
             reply = self.pet_link.try_action(text)
-            if reply is not None:
+            action_feedback = conversational_action_feedback(reply, self.settings, self.config)
+            if reply is not None and action_feedback is None:
                 if self._pending_finish_text is not None:
                     self._complete_finished(self._pending_finish_text)
                 self._reset()
                 self.input.clear()
                 self._append_action_reply(text, reply)
                 return
+        if self._pending_finish_text is not None:
+            self._complete_finished(self._pending_finish_text)
         attachment_names = [path.name for path in self.composer.attachment_paths]
         attachment_context = self.composer.attachment_prompt()
         image_payloads = self.composer.image_payloads()
@@ -2263,7 +2269,7 @@ class ChatWindow(QDialog):
                 self._refresh_sessions()
         self._add("user", display_text)
         self._last_user_text = request_text
-        self._begin_generation(request_text, image_payloads=image_payloads)
+        self._begin_generation(request_text, image_payloads=image_payloads, action_feedback=action_feedback)
 
     def _append_action_reply(self, text: str, reply: str) -> None:
         synced, absorbed = self.store.append_messages(
@@ -2358,11 +2364,12 @@ class ChatWindow(QDialog):
             ]
         self._begin_generation(text, image_payloads=image_payloads)
 
-    def _begin_generation(self, text: str, *, image_payloads: list[dict] | None = None) -> None:
+    def _begin_generation(self, text: str, *, image_payloads: list[dict] | None = None, action_feedback=None) -> None:
         self._typewriter_timer.stop()
         self._pending_output = ""
         self._pending_finish_text = None
         self._stream_follow_output = True
+        self._action_feedback = action_feedback
         self._bubble = self._add("assistant", "")
         self._bubble.set_state("streaming")
         self._bubble.retry_requested.connect(self.retry_last)
@@ -2382,10 +2389,13 @@ class ChatWindow(QDialog):
             memory_payload=self._memory_injection(),
             # 每宠键：config 可能是 slot 路由视图，必须从 get 逐键读（chat_settings()
             # 转发主配置，读不到这只宠的场景卡）。
-            roleplay_enabled=bool(self.config.get("roleplay_enabled", False)),
+            roleplay_enabled=bool(self.config.get("roleplay_enabled", False)) and action_feedback is None,
             roleplay_scene=str(self.config.get("roleplay_scene", "") or ""),
             roleplay_cast=str(self.config.get("roleplay_cast", "") or ""),
         )
+        if action_feedback is not None:
+            action_feedback.add_context(messages)
+            config = action_feedback.reply_config(config)
         if image_payloads:
             messages[-1]["content"] = [{"type": "text", "text": text}, *image_payloads]
         self._last_user_payload = messages[-1].get("content") if image_payloads else None
@@ -2450,6 +2460,8 @@ class ChatWindow(QDialog):
         """思考过程 / 联网进度：进气泡顶部的折叠面板，不进正文（随回复另存，见 _complete_finished）。"""
         if request_id != self._active_request_id or not self._bubble:
             return
+        if getattr(self, "_action_feedback", None) is not None:
+            return
         if kind == "reasoning":
             self._bubble.append_reasoning(text)
             self.status.setText("深度思考中…")
@@ -2462,6 +2474,8 @@ class ChatWindow(QDialog):
 
     def _delta(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
+            return
+        if getattr(self, "_action_feedback", None) is not None:
             return
         if not text:
             return
@@ -2495,6 +2509,9 @@ class ChatWindow(QDialog):
     def _finished(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            text = feedback.compact_reply(text)
         text = str(text or "")
         if not text.strip():
             self._typewriter_timer.stop()
@@ -2547,6 +2564,14 @@ class ChatWindow(QDialog):
     def _error(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            self._typewriter_timer.stop()
+            self._pending_output = ""
+            self._pending_finish_text = None
+            self._complete_finished(str(feedback))
+            self.status.setText("回复生成失败；已保留动作结果")
+            return
         self._typewriter_timer.stop()
         self._pending_output = ""
         self._pending_finish_text = None
@@ -2569,6 +2594,14 @@ class ChatWindow(QDialog):
     def _stopped(self, request_id: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            self._typewriter_timer.stop()
+            self._pending_output = ""
+            self._pending_finish_text = None
+            self._complete_finished(str(feedback))
+            self.status.setText("已停止生成；已保留动作结果")
+            return
         self._typewriter_timer.stop()
         self._pending_output = ""
         self._pending_finish_text = None
@@ -2582,6 +2615,7 @@ class ChatWindow(QDialog):
         self._reset()
 
     def _reset(self) -> None:
+        self._action_feedback = None
         # 停止打字机并丢弃未排空的输出：模型完成后若仍有 ~1 秒的逐字
         # 排空窗口，此时切换/新建/删除会话或换角色会把这轮回复继续
         # append 并保存进"新"会话（原会话丢回复、新会话多幻影消息）。

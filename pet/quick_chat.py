@@ -31,7 +31,7 @@ from .chat.memory_extract import schedule_extraction
 from .chat.prompt import PromptBuilder
 from .chat.service import ChatService
 from .chat.session_store import SessionStore
-from .chat.pet_actions import dispatch_pet_action
+from .chat.pet_actions import dispatch_pet_action, conversational_action_feedback
 
 _PAGE_SIZE = 500
 
@@ -401,7 +401,8 @@ class QuickChatBubble(QFrame):
         self._pages = []
         self.page_widget.setVisible(False)
         reply = dispatch_pet_action(text, self.pet_window)
-        if reply is not None:
+        self._action_feedback = conversational_action_feedback(reply, self.settings, self.config)
+        if reply is not None and self._action_feedback is None:
             self._active_request_id = None
             synced, _absorbed = self.store.append_message(self.session, ChatMessage("assistant", reply))
             if synced is None:
@@ -423,10 +424,13 @@ class QuickChatBubble(QFrame):
             self.settings, self.character_id, self.session.messages[:-1], text,
             # 每宠键：config 可能是 slot 路由视图，必须从 get 逐键读（chat_settings()
             # 转发主配置，读不到这只宠的场景卡）。与 widgets.py / legacy_widgets.py 同口径。
-            roleplay_enabled=bool(self.config.get("roleplay_enabled", False)),
+            roleplay_enabled=bool(self.config.get("roleplay_enabled", False)) and self._action_feedback is None,
             roleplay_scene=str(self.config.get("roleplay_scene", "") or ""),
             roleplay_cast=str(self.config.get("roleplay_cast", "") or ""),
         )
+        if self._action_feedback is not None:
+            self._action_feedback.add_context(messages)
+            config = self._action_feedback.reply_config(config)
         self._request_pet_window = self.pet_window
         self._active_request_id = self.service.send(messages, config)
 
@@ -438,6 +442,8 @@ class QuickChatBubble(QFrame):
     def _activity(self, request_id: str, kind: str, text: str) -> None:
         if request_id != self._active_request_id or self._reply_full:
             return
+        if getattr(self, "_action_feedback", None) is not None:
+            return
         self.hint_label.setText("深度思考中…" if kind == "reasoning" else str(text).strip()[:30])
 
     def _request_presentation_valid(self) -> bool:
@@ -447,6 +453,8 @@ class QuickChatBubble(QFrame):
 
     def _delta(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id or not self._request_presentation_valid():
+            return
+        if getattr(self, "_action_feedback", None) is not None:
             return
         self._set_reply_text(self._reply_full + str(text))
         self._render_reply()
@@ -462,6 +470,10 @@ class QuickChatBubble(QFrame):
     def _finished(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            text = feedback.compact_reply(text)
+        self._action_feedback = None
         # 落库/聊天窗用全文；气泡展示文本另行截断（见 _set_reply_text）。
         self._set_reply_text(text)
         synced, _absorbed = self.store.append_message(self.session, ChatMessage("assistant", self._reply_full))
@@ -480,6 +492,11 @@ class QuickChatBubble(QFrame):
     def _error(self, request_id: str, text: str) -> None:
         if request_id != self._active_request_id:
             return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            self._finished(request_id, str(feedback))
+            self.hint_label.setText("回复生成失败；已保留动作结果")
+            return
         self._active_request_id = None
         self.hint_label.setText("")
         self._set_reply_text(f"请求失败：{text}")
@@ -487,6 +504,11 @@ class QuickChatBubble(QFrame):
 
     def _stopped(self, request_id: str) -> None:
         if request_id != self._active_request_id:
+            return
+        feedback = getattr(self, "_action_feedback", None)
+        if feedback is not None:
+            self._finished(request_id, str(feedback))
+            self.hint_label.setText("已停止生成；已保留动作结果")
             return
         self._active_request_id = None
         self.hint_label.setText("已停止")

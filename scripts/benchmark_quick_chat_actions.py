@@ -5,10 +5,11 @@ from pathlib import Path
 import statistics
 import sys
 import time
+import tracemalloc
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pet.chat.pet_actions import parse_pet_action  # noqa: E402
+from pet.chat.pet_actions import ActionFeedback, parse_pet_action  # noqa: E402
 
 
 def main():
@@ -23,6 +24,22 @@ def main():
             times.append((time.perf_counter_ns() - start) / 10_000 / 1000)
         print(f"chars={len(text):4d} median_us={statistics.median(times):.3f} "
               f"max_batch_us={max(times):.3f}")
+    feedback = ActionFeedback("跳跃")
+    times = []
+    for _ in range(7):
+        start = time.perf_counter_ns()
+        for _ in range(10_000):
+            messages = [{"role": "system", "content": "existing persona"}]
+            feedback.add_context(messages)
+        times.append((time.perf_counter_ns() - start) / 10_000 / 1000)
+    print(f"action_context median_us={statistics.median(times):.3f} "
+          f"max_batch_us={max(times):.3f} added_chars={len(messages[0]['content']) - 16}")
+    tracemalloc.start()
+    for _ in range(10_000):
+        messages = [{"role": "system", "content": "existing persona"}]
+        feedback.add_context(messages)
+    print("action_context traced_current_peak_bytes=", tracemalloc.get_traced_memory())
+    tracemalloc.stop()
 
 
 if __name__ == "__main__":

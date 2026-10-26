@@ -247,7 +247,7 @@ class _SpriteChatAnchor:
 
     def perform_chat_action(self, action) -> str:
         """User animation commands stay bound to this sprite, including child pets."""
-        from .chat.pet_actions import execute_pet_action, is_move_action
+        from .chat.pet_actions import execute_pet_action, is_move_action, chat_action_mood
 
         shell, sprite = self._shell, self._sprite
         if not self.presentation_valid() or not shell._sprite_speech_visible(sprite):
@@ -272,7 +272,7 @@ class _SpriteChatAnchor:
             action, sprite.library.names(),
             lambda name: behavior.play_once(sprite, name),
             lambda name, direction: behavior.play_move_once(
-                sprite, name, direction=direction, fallback_to_acts=False), spin, moves)
+                sprite, name, direction=direction, fallback_to_acts=False), spin, moves, mood=chat_action_mood(sprite))
 
 
 class _GoldenSpinSpriteHost:
