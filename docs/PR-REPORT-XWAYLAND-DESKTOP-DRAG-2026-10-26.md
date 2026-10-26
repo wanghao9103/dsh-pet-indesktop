@@ -22,10 +22,10 @@
 | 文件 | 增删 | 修改及理由 |
 | --- | --- | --- |
 | `pet/platform_passthrough.py` | +31 / -0 | xcb 优先使用 native shape；保留原平台回退、显示后对账与拖拽收尾。 |
-| `pet/x11_input_shape.py` | 新增 | 角色渲染 alpha≥16 转为物理像素输入区域；只修改 ShapeInput；一角色一份缓存与一个窗口一条 X 连接。 |
-| `tests/test_x11_input_shape.py` | 新增 | 固定光标查询回归、alpha 阈值、位移、旋转、DPR、隐藏、手动穿透、拖拽与未变掩码不重写。 |
-| `scripts/probe_x11_input_shape.py` | 新增 | 隔离 X11 下经 XTest 验证事件真正送达角色或背景，支持原实现对照。 |
-| `scripts/benchmark_x11_input_shape.py` | 新增 | 可重复的缓存/新帧输入区域耗时基准。 |
+| `pet/x11_input_shape.py` | 新增，+160 / -0 | 角色渲染 alpha≥16 转为物理像素输入区域；只修改 ShapeInput；一角色一份缓存与一个窗口一条 X 连接。 |
+| `tests/test_x11_input_shape.py` | 新增，+168 / -0 | 固定光标查询回归、alpha 阈值、位移、旋转、DPR、隐藏、手动穿透、拖拽与未变掩码不重写。 |
+| `scripts/probe_x11_input_shape.py` | 新增，+169 / -0 | 隔离 X11 下经 XTest 验证事件真正送达角色或背景，支持原实现对照。 |
+| `scripts/benchmark_x11_input_shape.py` | 新增，+32 / -0 | 可重复的缓存/新帧输入区域耗时基准。 |
 | 本报告、`docs/INDEX.md` | 新增 / +1 | 记录验证范围、失败与未覆盖项。 |
 
 未修改用户配置、动画素材、AI 接口或各平台构建脚本。安装包已有 `libX11.so.6`、
@@ -108,6 +108,9 @@ QT_QPA_PLATFORM=offscreen python -m pytest -q \
 ```
 
 - 相关回归：**146 passed, 2 skipped**。
+- 文档纪律与运行时依赖检查：**233 passed**。
+- 同一 CPU 核上施加持续 CPU 负载，输入/穿透族连续三轮各 **43 passed, 1 skipped**，
+  耗时分别 6.90s、7.05s、6.61s。
 - 修改文件 ruff 与 `git diff --check`：通过。
 - 项目全量测试已尝试，但当前稀疏 checkout 缺少角色素材，出现既有失败；大约 1100 条
   测试标记后停止，不声称全量通过。单独复查前三个失败，均为
